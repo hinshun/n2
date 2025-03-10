@@ -16,9 +16,9 @@ use std::path::PathBuf;
 use std::{borrow::Cow, path::Path};
 
 /// A variable lookup environment for magic $in/$out variables.
-struct BuildImplicitVars<'a> {
-    graph: &'a graph::Graph,
-    build: &'a graph::Build,
+pub struct BuildImplicitVars<'a> {
+    pub graph: &'a graph::Graph,
+    pub build: &'a graph::Build,
 }
 impl<'a> BuildImplicitVars<'a> {
     fn file_list(&self, ids: &[FileId], sep: char) -> String {
