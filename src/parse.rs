@@ -14,11 +14,11 @@ use std::path::Path;
 
 /// A list of variable bindings, as expressed with syntax like:
 ///   key = $val
-pub type VarList<'text> = SmallMap<&'text str, EvalString<&'text str>>;
+pub type VarList = SmallMap<String, EvalString<String>>;
 
 pub struct Rule<'text> {
     pub name: &'text str,
-    pub vars: VarList<'text>,
+    pub vars: VarList,
 }
 
 pub struct Build<'text> {
@@ -31,7 +31,7 @@ pub struct Build<'text> {
     pub implicit_ins: usize,
     pub order_only_ins: usize,
     pub validation_ins: usize,
-    pub vars: VarList<'text>,
+    pub vars: VarList,
 }
 
 #[derive(Debug)]
@@ -51,7 +51,7 @@ pub enum Statement<'text> {
 
 pub struct Parser<'text> {
     scanner: Scanner<'text>,
-    pub vars: Vars<'text>,
+    pub vars: Vars,
     /// Reading EvalStrings is very hot when parsing, so we always read into
     /// this buffer and then clone it afterwards.
     eval_buf: Vec<EvalPart<&'text str>>,
@@ -97,7 +97,7 @@ impl<'text> Parser<'text> {
                             // multiple parsers in parallel and then evaluate
                             // all the variables in series at the end.
                             let val = self.read_vardef()?.evaluate(&[&self.vars]);
-                            self.vars.insert(ident, val);
+                            self.vars.insert(ident.to_owned(), val);
                         }
                     }
                 }
@@ -124,7 +124,7 @@ impl<'text> Parser<'text> {
     fn read_scoped_vars(
         &mut self,
         variable_name_validator: fn(var: &str) -> bool,
-    ) -> ParseResult<VarList<'text>> {
+    ) -> ParseResult<VarList> {
         let mut vars = VarList::default();
         while self.scanner.peek() == ' ' {
             self.scanner.skip_spaces();
@@ -135,7 +135,7 @@ impl<'text> Parser<'text> {
             }
             self.skip_spaces();
             let val = self.read_vardef()?;
-            vars.insert(name, val);
+            vars.insert(name.to_owned(), val.into_owned());
         }
         Ok(vars)
     }

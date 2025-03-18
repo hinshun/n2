@@ -56,7 +56,7 @@ impl File {
 }
 
 /// A textual location within a build.ninja file, used in error messages.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FileLoc {
     pub filename: std::rc::Rc<PathBuf>,
     pub line: usize,
@@ -74,6 +74,7 @@ pub struct RspFile {
 }
 
 /// Input files to a Build.
+#[derive(Clone)]
 pub struct BuildIns {
     /// Internally we stuff explicit/implicit/order-only ins all into one Vec.
     /// This is mostly to simplify some of the iteration and is a little more
@@ -88,6 +89,7 @@ pub struct BuildIns {
 }
 
 /// Output files from a Build.
+#[derive(Clone)]
 pub struct BuildOuts {
     /// Similar to ins, we keep both explicit and implicit outs in one Vec.
     pub ids: Vec<FileId>,
@@ -265,41 +267,6 @@ impl Graph {
     pub fn file(&self, id: FileId) -> &File {
         &self.files.by_id[id]
     }
-
-    /// Add a new Build, generating a BuildId for it.
-    pub fn add_build(&mut self, mut build: Build) -> anyhow::Result<()> {
-        let new_id = self.builds.next_id();
-        for &id in &build.ins.ids {
-            self.files.by_id[id].dependents.push(new_id);
-        }
-        let mut fixup_dups = false;
-        for &id in &build.outs.ids {
-            let f = &mut self.files.by_id[id];
-            match f.input {
-                Some(prev) if prev == new_id => {
-                    fixup_dups = true;
-                    println!(
-                        "n2: warn: {}: {:?} is repeated in output list",
-                        build.location, f.name,
-                    );
-                }
-                Some(prev) => {
-                    anyhow::bail!(
-                        "{}: {:?} is already an output at {}",
-                        build.location,
-                        f.name,
-                        self.builds[prev].location
-                    );
-                }
-                None => f.input = Some(new_id),
-            }
-        }
-        if fixup_dups {
-            build.outs.remove_duplicates();
-        }
-        self.builds.push(build);
-        Ok(())
-    }
 }
 
 impl GraphFiles {
@@ -330,11 +297,18 @@ impl GraphFiles {
             }
         }
     }
+}
 
-    pub fn all_ids(&self) -> impl Iterator<Item = FileId> {
-        (0..self.by_id.next_id().0).map(|id| FileId(id))
+pub trait FilenameResolver {
+    fn lookup_filename(&self, id: FileId) -> String;
+}
+
+impl FilenameResolver for GraphFiles {
+    fn lookup_filename(&self, id: FileId) -> String {
+        self.by_id[id].name.clone()
     }
 }
+
 
 /// MTime info gathered for a file.  This also models "file is absent".
 /// It's not using an Option<> just because it makes the code using it easier

@@ -3,22 +3,23 @@
 use crate::{
     canon::{canonicalize_path, to_owned_canon_path},
     db,
+    densemap::DenseMap,
     eval::{self, EvalPart, EvalString},
-    graph::{self, FileId, RspFile},
-    parse::{self, Statement},
+    graph::{self, BuildId, BuildIns, BuildOuts, FileId, FileLoc, FilenameResolver, RspFile},
+    parse::{self, Statement, VarList},
     scanner,
     smallmap::SmallMap,
-    trace,
+    trace
 };
 use anyhow::{anyhow, bail};
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 use std::path::PathBuf;
-use std::{borrow::Cow, path::Path};
+use std::path::Path;
 
 /// A variable lookup environment for magic $in/$out variables.
 struct BuildImplicitVars<'a> {
-    graph: &'a graph::Graph,
-    build: &'a graph::Build,
+    resolver: &'a dyn FilenameResolver,
+    build:    &'a graph::Build,
 }
 impl<'a> BuildImplicitVars<'a> {
     fn file_list(&self, ids: &[FileId], sep: char) -> String {
@@ -27,7 +28,7 @@ impl<'a> BuildImplicitVars<'a> {
             if !out.is_empty() {
                 out.push(sep);
             }
-            out.push_str(&self.graph.file(id).name);
+            out.push_str(&self.resolver.lookup_filename(id));
         }
         out
     }
@@ -50,11 +51,12 @@ impl<'a> eval::Env for BuildImplicitVars<'a> {
 #[derive(Default)]
 pub struct Loader {
     pub graph: graph::Graph,
-    default: Vec<FileId>,
+    pub lazy_builds: DenseMap<BuildId, LazyBuild>,
+    pub env: eval::Vars,
+    pub default: Vec<FileId>,
     /// rule name -> list of (key, val)
-    rules: HashMap<String, SmallMap<String, eval::EvalString<String>>>,
+    rules: HashMap<String, VarList>,
     pools: SmallMap<String, usize>,
-    builddir: Option<String>,
 }
 
 impl Loader {
@@ -107,27 +109,79 @@ impl Loader {
             ids: self.evaluate_paths(b.outs, &[&b.vars, env]),
             explicit: b.explicit_outs,
         };
+
+        let mut lazy_build = {
+            let loc = graph::FileLoc {
+                    filename,
+                    line: b.line,
+                };
+            let vars = b.vars;
+            LazyBuild {
+                location: loc,
+                ins,
+                outs,
+                rule: b.rule.to_owned(),
+                vars,
+            }
+        };
+
+        let new_id = self.lazy_builds.next_id();
+        for &id in &lazy_build.ins.ids {
+            self.graph.files.by_id[id].dependents.push(new_id);
+        }
+        let mut fixup_dups = false;
+        for &id in &lazy_build.outs.ids {
+            let f = &mut self.graph.files.by_id[id];
+            match f.input {
+                Some(prev) if prev == new_id => {
+                    fixup_dups = true;
+                    println!(
+                        "n2: warn: {}: {:?} is repeated in output list",
+                        lazy_build.location, f.name,
+                    );
+                }
+                Some(prev) => {
+                    anyhow::bail!(
+                        "{}: {:?} is already an output at {}",
+                        lazy_build.location,
+                        f.name,
+                        self.lazy_builds[prev].location
+                    );
+                }
+                None => f.input = Some(new_id),
+            }
+        }
+        if fixup_dups {
+            lazy_build.outs.remove_duplicates();
+        }
+        self.lazy_builds.push(lazy_build);
+        Ok(())
+    }
+
+    pub fn evaluate_build<T: FilenameResolver>(
+        &self,
+        lazy_build: &LazyBuild,
+        resolver: &T,
+        env: &eval::Vars,
+    ) -> anyhow::Result<graph::Build> {
         let mut build = graph::Build::new(
-            graph::FileLoc {
-                filename,
-                line: b.line,
-            },
-            ins,
-            outs,
+            lazy_build.location.clone(),
+            lazy_build.ins.clone(),
+            lazy_build.outs.clone(),
         );
 
-        let rule = match self.rules.get(b.rule) {
+        let rule = match self.rules.get(&lazy_build.rule) {
             Some(r) => r,
-            None => bail!("unknown rule {:?}", b.rule),
+            None => bail!("unknown rule {:?}", lazy_build.rule),
         };
 
         let implicit_vars = BuildImplicitVars {
-            graph: &self.graph,
+            resolver,
             build: &build,
         };
 
         // temp variable in order to not move all of b into the closure
-        let build_vars = &b.vars;
+        let build_vars = &lazy_build.vars;
         let lookup = |key: &str| -> Option<String> {
             // Look up `key = ...` binding in build and rule block.
             // See "Variable scope" in the design notes.
@@ -170,7 +224,20 @@ impl Loader {
         build.hide_success = hide_success;
         build.hide_progress = hide_progress;
 
-        self.graph.add_build(build)
+        Ok(build)
+    }
+
+    pub fn evaluate_builds(&mut self) -> anyhow::Result<()> {
+        for id in self.lazy_builds.all_ids() {
+            let lazy_build = match self.lazy_builds.lookup(id) {
+                Some(lb) => lb,
+                None => bail!("unknown build id {:?}", id),
+            };
+
+            let build = self.evaluate_build(lazy_build, &self.graph.files, &self.env)?;
+            self.graph.builds.push(build);
+        }
+        Ok(())
     }
 
     fn read_file(&mut self, id: FileId) -> anyhow::Result<()> {
@@ -217,14 +284,7 @@ impl Loader {
                     self.default.extend(evaluated);
                 }
                 Statement::Rule(rule) => {
-                    let mut vars: SmallMap<String, eval::EvalString<String>> = SmallMap::default();
-                    for (name, val) in rule.vars.into_iter() {
-                        // TODO: We should not need to call .into_owned() here
-                        // if we keep the contents of all included files in
-                        // memory.
-                        vars.insert(name.to_owned(), val.into_owned());
-                    }
-                    self.rules.insert(rule.name.to_owned(), vars);
+                    self.rules.insert(rule.name.to_owned(), rule.vars);
                 }
                 Statement::Build(build) => self.add_build(filename.clone(), &parser.vars, build)?,
                 Statement::Pool(pool) => {
@@ -232,8 +292,41 @@ impl Loader {
                 }
             };
         }
-        self.builddir = parser.vars.get("builddir").cloned();
+        self.env = parser.vars;
         Ok(())
+    }
+}
+
+pub struct LazyBuild {
+    /// Source location this Build was declared.
+    pub location: FileLoc,
+
+    /// Input files.
+    pub ins: BuildIns,
+
+    /// Output files.
+    pub outs: BuildOuts,
+
+    pub rule: String,
+
+    pub vars: VarList,
+}
+
+impl LazyBuild {
+    pub fn new(
+        loc: FileLoc,
+        ins: BuildIns,
+        outs: BuildOuts,
+        rule: String,
+        vars: VarList,
+    ) -> Self {
+        LazyBuild {
+            location: loc,
+            ins,
+            outs,
+            rule,
+            vars,
+        }
     }
 }
 
@@ -254,12 +347,13 @@ pub fn read(build_filename: &str) -> anyhow::Result<State> {
             .graph
             .files
             .id_from_canonical(to_owned_canon_path(build_filename));
-        loader.read_file(id)
+        loader.read_file(id)?;
+        loader.evaluate_builds()
     })?;
     let mut hashes = graph::Hashes::default();
     let db = trace::scope("db::open", || {
         let mut db_path = PathBuf::from(".n2_db");
-        if let Some(builddir) = &loader.builddir {
+        if let Some(builddir) = &loader.env.get("builddir") {
             db_path = Path::new(&builddir).join(db_path);
             if let Some(parent) = db_path.parent() {
                 std::fs::create_dir_all(parent)?;

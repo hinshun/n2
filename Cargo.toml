@@ -51,6 +51,6 @@ name = "canon"
 harness = false
 
 [features]
-default = ["jemalloc"]
+default = []
 jemalloc = ["jemallocator"]
 crlf = []

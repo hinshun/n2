@@ -122,17 +122,17 @@ impl EvalString<&str> {
 
 /// A single scope's worth of variable definitions.
 #[derive(Debug, Default)]
-pub struct Vars<'text>(FxHashMap<&'text str, String>);
+pub struct Vars(FxHashMap<String, String>);
 
-impl<'text> Vars<'text> {
-    pub fn insert(&mut self, key: &'text str, val: String) {
+impl Vars {
+    pub fn insert(&mut self, key: String, val: String) {
         self.0.insert(key, val);
     }
     pub fn get(&self, key: &str) -> Option<&String> {
         self.0.get(key)
     }
 }
-impl<'a> Env for Vars<'a> {
+impl Env for Vars {
     fn get_var(&self, var: &str) -> Option<EvalString<Cow<str>>> {
         Some(EvalString::new(vec![EvalPart::Literal(
             std::borrow::Cow::Borrowed(self.get(var)?),
