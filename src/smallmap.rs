@@ -78,3 +78,9 @@ impl<K: PartialEq, V: PartialEq> PartialEq for SmallMap<K, V> {
         return self.0 == other.0;
     }
 }
+
+impl<K: Clone, V: Clone> Clone for SmallMap<K, V> {
+    fn clone(&self) -> Self {
+        SmallMap(self.0.clone())
+    }
+}
