@@ -110,6 +110,11 @@ impl Loader {
             explicit: b.explicit_outs,
         };
 
+        let rule = match self.rules.get(b.rule) {
+            Some(r) => r,
+            None => bail!("unknown rule {:?}", b.rule),
+        };
+
         let mut lazy_build = {
             let loc = graph::FileLoc {
                     filename,
@@ -120,7 +125,7 @@ impl Loader {
                 location: loc,
                 ins,
                 outs,
-                rule: b.rule.to_owned(),
+                rule: rule.clone(),
                 vars,
             }
         };
@@ -170,11 +175,6 @@ impl Loader {
             lazy_build.outs.clone(),
         );
 
-        let rule = match self.rules.get(&lazy_build.rule) {
-            Some(r) => r,
-            None => bail!("unknown rule {:?}", lazy_build.rule),
-        };
-
         let implicit_vars = BuildImplicitVars {
             resolver,
             build: &build,
@@ -187,7 +187,7 @@ impl Loader {
             // See "Variable scope" in the design notes.
             Some(match build_vars.get(key) {
                 Some(val) => val.evaluate(&[env]),
-                None => rule.get(key)?.evaluate(&[&implicit_vars, build_vars, env]),
+                None => lazy_build.rule.get(key)?.evaluate(&[&implicit_vars, build_vars, env]),
             })
         };
 
@@ -307,7 +307,7 @@ pub struct LazyBuild {
     /// Output files.
     pub outs: BuildOuts,
 
-    pub rule: String,
+    pub rule: VarList,
 
     pub vars: VarList,
 }
@@ -317,7 +317,7 @@ impl LazyBuild {
         loc: FileLoc,
         ins: BuildIns,
         outs: BuildOuts,
-        rule: String,
+        rule: VarList,
         vars: VarList,
     ) -> Self {
         LazyBuild {

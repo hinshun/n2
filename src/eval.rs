@@ -26,7 +26,7 @@ pub enum EvalPart<T: AsRef<str>> {
 /// This is generic to support EvalString<&str>, which is used for immediately-
 /// expanded evals, like top-level bindings, and EvalString<String>, which is
 /// used for delayed evals like in `rule` blocks.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EvalString<T: AsRef<str>>(Vec<EvalPart<T>>);
 impl<T: AsRef<str>> EvalString<T> {
     pub fn new(parts: Vec<EvalPart<T>>) -> Self {
