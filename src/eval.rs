@@ -89,16 +89,10 @@ impl<T: AsRef<str>> fmt::Display for EvalString<T> {
         for part in &self.0 {
             match part {
                 EvalPart::Literal(s) => write!(f, "{}", s.as_ref())?,
-                EvalPart::VarRef(s) => write!(f, "${{{}}}", s.as_ref())?,
+                EvalPart::VarRef(s) => write!(f, "${}", s.as_ref())?,
             }
         }
         Ok(())
-    }
-}
-
-impl<T: AsRef<str>> fmt::Debug for EvalString<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("EvalString").field(&self.0).finish()
     }
 }
 
