@@ -6,7 +6,7 @@ use crate::{
     densemap::{self, DenseMap},
     hash::BuildHash,
 };
-use std::collections::{hash_map::Entry, HashMap};
+use std::{collections::{hash_map::Entry, HashMap}, ops::Deref};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -148,8 +148,7 @@ mod tests {
 
 /// A single build action, generating File outputs from File inputs with a command.
 pub struct Build {
-    /// Source location this Build was declared.
-    pub location: FileLoc,
+    pub deps: BuildDeps,
 
     /// User-provided description of the build step.
     pub desc: Option<String>,
@@ -169,13 +168,8 @@ pub struct Build {
     /// Pool to execute this build in, if any.
     pub pool: Option<String>,
 
-    pub ins: BuildIns,
-
     /// Additional inputs discovered from a previous build.
     discovered_ins: Vec<FileId>,
-
-    /// Output files.
-    pub outs: BuildOuts,
 
     /// True if output of command should be hidden on successful completion.
     pub hide_success: bool,
@@ -183,20 +177,55 @@ pub struct Build {
     pub hide_progress: bool,
 }
 impl Build {
-    pub fn new(loc: FileLoc, ins: BuildIns, outs: BuildOuts) -> Self {
+    pub fn new(deps: BuildDeps) -> Self {
         Build {
-            location: loc,
+            deps,
             desc: None,
             cmdline: None,
             depfile: None,
             parse_showincludes: false,
             rspfile: None,
             pool: None,
-            ins,
             discovered_ins: Vec::new(),
-            outs,
             hide_success: false,
             hide_progress: false,
+        }
+    }
+
+    pub fn set_discovered_ins(&mut self, deps: Vec<FileId>) {
+        self.discovered_ins = deps;
+    }
+
+    /// Input paths that were discovered after building, for use in the next build.
+    pub fn discovered_ins(&self) -> &[FileId] {
+        &self.discovered_ins
+    }
+}
+impl Deref for Build {
+    type Target = BuildDeps;
+
+    fn deref(&self) -> &Self::Target {
+        &self.deps
+    }
+}
+
+#[derive(Clone)]
+pub struct BuildDeps {
+    /// Source location this Build was declared.
+    pub location: FileLoc,
+
+    pub ins: BuildIns,
+
+    /// Output files.
+    pub outs: BuildOuts,
+}
+
+impl BuildDeps {
+    pub fn new(loc: FileLoc, ins: BuildIns, outs: BuildOuts) -> Self {
+        BuildDeps {
+            location: loc,
+            ins,
+            outs,
         }
     }
 
@@ -227,14 +256,6 @@ impl Build {
         &self.ins.ids[(self.ins.order_only + self.ins.explicit + self.ins.implicit)..]
     }
 
-    pub fn set_discovered_ins(&mut self, deps: Vec<FileId>) {
-        self.discovered_ins = deps;
-    }
-
-    /// Input paths that were discovered after building, for use in the next build.
-    pub fn discovered_ins(&self) -> &[FileId] {
-        &self.discovered_ins
-    }
 
     /// Output paths that appear in `$out`.
     pub fn explicit_outs(&self) -> &[FileId] {

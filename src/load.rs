@@ -5,21 +5,21 @@ use crate::{
     db,
     densemap::DenseMap,
     eval::{self, EvalPart, EvalString},
-    graph::{self, BuildId, BuildIns, BuildOuts, FileId, FileLoc, FilenameResolver, RspFile},
+    graph::{self, BuildDeps, BuildId, BuildIns, BuildOuts, FileId, FileLoc, FilenameResolver, RspFile},
     parse::{self, Statement, VarList},
     scanner,
     smallmap::SmallMap,
     trace
 };
 use anyhow::{anyhow, bail};
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, collections::HashMap, ops::Deref};
 use std::path::PathBuf;
 use std::path::Path;
 
 /// A variable lookup environment for magic $in/$out variables.
 struct BuildImplicitVars<'a> {
     resolver: &'a dyn FilenameResolver,
-    build:    &'a graph::Build,
+    build:    &'a LazyBuild,
 }
 impl<'a> BuildImplicitVars<'a> {
     fn file_list(&self, ids: &[FileId], sep: char) -> String {
@@ -122,9 +122,7 @@ impl Loader {
                 };
             let vars = b.vars;
             LazyBuild {
-                location: loc,
-                ins,
-                outs,
+                deps: BuildDeps::new(loc, ins, outs),
                 rule: rule.clone(),
                 vars,
             }
@@ -157,7 +155,7 @@ impl Loader {
             }
         }
         if fixup_dups {
-            lazy_build.outs.remove_duplicates();
+            lazy_build.deps.outs.remove_duplicates();
         }
         self.lazy_builds.push(lazy_build);
         Ok(())
@@ -167,28 +165,9 @@ impl Loader {
         &self,
         lazy_build: &LazyBuild,
         resolver: &T,
-        env: &eval::Vars,
     ) -> anyhow::Result<graph::Build> {
-        let mut build = graph::Build::new(
-            lazy_build.location.clone(),
-            lazy_build.ins.clone(),
-            lazy_build.outs.clone(),
-        );
-
-        let implicit_vars = BuildImplicitVars {
-            resolver,
-            build: &build,
-        };
-
-        // temp variable in order to not move all of b into the closure
-        let build_vars = &lazy_build.vars;
-        let lookup = |key: &str| -> Option<String> {
-            // Look up `key = ...` binding in build and rule block.
-            // See "Variable scope" in the design notes.
-            Some(match build_vars.get(key) {
-                Some(val) => val.evaluate(&[env]),
-                None => lazy_build.rule.get(key)?.evaluate(&[&implicit_vars, build_vars, env]),
-            })
+        let lookup = |key : &str| -> Option<String> {
+            lazy_build.lookup(resolver, &self.env, key)
         };
 
         let cmdline = lookup("command");
@@ -215,6 +194,7 @@ impl Loader {
         let hide_success = lookup("hide_success").is_some();
         let hide_progress = lookup("hide_progress").is_some();
 
+        let mut build = graph::Build::new(lazy_build.deps.clone());
         build.cmdline = cmdline;
         build.desc = desc;
         build.depfile = depfile;
@@ -234,7 +214,7 @@ impl Loader {
                 None => bail!("unknown build id {:?}", id),
             };
 
-            let build = self.evaluate_build(lazy_build, &self.graph.files, &self.env)?;
+            let build = self.evaluate_build(lazy_build, &self.graph.files)?;
             self.graph.builds.push(build);
         }
         Ok(())
@@ -298,18 +278,18 @@ impl Loader {
 }
 
 pub struct LazyBuild {
-    /// Source location this Build was declared.
-    pub location: FileLoc,
-
-    /// Input files.
-    pub ins: BuildIns,
-
-    /// Output files.
-    pub outs: BuildOuts,
+    pub deps: BuildDeps,
 
     pub rule: VarList,
 
     pub vars: VarList,
+}
+impl Deref for LazyBuild {
+    type Target = BuildDeps;
+
+    fn deref(&self) -> &Self::Target {
+        &self.deps
+    }
 }
 
 impl LazyBuild {
@@ -321,12 +301,24 @@ impl LazyBuild {
         vars: VarList,
     ) -> Self {
         LazyBuild {
-            location: loc,
-            ins,
-            outs,
+            deps: BuildDeps::new(loc, ins, outs),
             rule,
             vars,
         }
+    }
+
+    pub fn lookup(&self, resolver: &dyn FilenameResolver, env: &eval::Vars, key: &str) -> Option<String> {
+        let implicit_vars = BuildImplicitVars {
+            resolver,
+            build: self,
+        };
+
+        // Look up `key = ...` binding in build and rule block.
+        // See "Variable scope" in the design notes.
+        Some(match self.vars.get(key) {
+            Some(val) => val.evaluate(&[env]),
+            None => self.rule.get(key)?.evaluate(&[&implicit_vars, &self.vars, env]),
+        })
     }
 }
 
