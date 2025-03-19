@@ -2,7 +2,7 @@ pub mod canon;
 mod db;
 pub mod densemap;
 mod depfile;
-mod eval;
+pub mod eval;
 pub mod graph;
 mod hash;
 pub mod load;
