@@ -6,6 +6,7 @@ use rustc_hash::FxHashMap;
 use crate::smallmap::SmallMap;
 use std::borrow::Borrow;
 use std::borrow::Cow;
+use std::fmt;
 
 /// An environment providing a mapping of variable name to variable value.
 /// This represents one "frame" of evaluation context, a given EvalString may
@@ -30,6 +31,11 @@ pub struct EvalString<T: AsRef<str>>(Vec<EvalPart<T>>);
 impl<T: AsRef<str>> EvalString<T> {
     pub fn new(parts: Vec<EvalPart<T>>) -> Self {
         EvalString(parts)
+    }
+
+    /// Returns the parts that make up this EvalString
+    pub fn parts(&self) -> &[EvalPart<T>] {
+        &self.0
     }
 
     fn evaluate_inner(&self, result: &mut String, envs: &[&dyn Env]) {
@@ -75,6 +81,24 @@ impl<T: AsRef<str>> EvalString<T> {
         result.reserve(self.calc_evaluated_length(envs));
         self.evaluate_inner(&mut result, envs);
         result
+    }
+}
+
+impl<T: AsRef<str>> fmt::Display for EvalString<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for part in &self.0 {
+            match part {
+                EvalPart::Literal(s) => write!(f, "{}", s.as_ref())?,
+                EvalPart::VarRef(s) => write!(f, "${{{}}}", s.as_ref())?,
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<T: AsRef<str>> fmt::Debug for EvalString<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("EvalString").field(&self.0).finish()
     }
 }
 
