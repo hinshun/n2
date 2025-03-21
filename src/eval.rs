@@ -139,7 +139,7 @@ impl EvalString<&str> {
 }
 
 /// A single scope's worth of variable definitions.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Vars(FxHashMap<String, String>);
 
 impl Vars {
