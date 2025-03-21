@@ -484,7 +484,7 @@ impl<'a> Work<'a> {
                 deps.push(fileid);
             }
         }
-        self.graph.builds[id].set_discovered_ins(deps);
+        self.graph.builds[id].deps.set_discovered_ins(deps);
         let build = &self.graph.builds[id];
 
         // Unconditionally stat all inputs and outputs.

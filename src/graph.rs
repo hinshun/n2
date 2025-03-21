@@ -168,9 +168,6 @@ pub struct Build {
     /// Pool to execute this build in, if any.
     pub pool: Option<String>,
 
-    /// Additional inputs discovered from a previous build.
-    discovered_ins: Vec<FileId>,
-
     /// True if output of command should be hidden on successful completion.
     pub hide_success: bool,
     /// True if last line of output should not be shown in status.
@@ -186,19 +183,9 @@ impl Build {
             parse_showincludes: false,
             rspfile: None,
             pool: None,
-            discovered_ins: Vec::new(),
             hide_success: false,
             hide_progress: false,
         }
-    }
-
-    pub fn set_discovered_ins(&mut self, deps: Vec<FileId>) {
-        self.discovered_ins = deps;
-    }
-
-    /// Input paths that were discovered after building, for use in the next build.
-    pub fn discovered_ins(&self) -> &[FileId] {
-        &self.discovered_ins
     }
 }
 impl Deref for Build {
@@ -218,6 +205,9 @@ pub struct BuildDeps {
 
     /// Output files.
     pub outs: BuildOuts,
+
+    /// Additional inputs discovered from a previous build.
+    discovered_ins: Vec<FileId>,
 }
 
 impl BuildDeps {
@@ -226,6 +216,7 @@ impl BuildDeps {
             location: loc,
             ins,
             outs,
+            discovered_ins: Vec::new(),
         }
     }
 
@@ -256,6 +247,14 @@ impl BuildDeps {
         &self.ins.ids[(self.ins.order_only + self.ins.explicit + self.ins.implicit)..]
     }
 
+    pub fn set_discovered_ins(&mut self, deps: Vec<FileId>) {
+        self.discovered_ins = deps;
+    }
+
+    /// Input paths that were discovered after building, for use in the next build.
+    pub fn discovered_ins(&self) -> &[FileId] {
+        &self.discovered_ins
+    }
 
     /// Output paths that appear in `$out`.
     pub fn explicit_outs(&self) -> &[FileId] {

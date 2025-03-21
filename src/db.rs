@@ -249,7 +249,7 @@ impl<'a> Reader<'a> {
         // unique_bid is set here if this record is valid.
         if let Some(id) = unique_bid {
             // Common case: only one associated build.
-            self.graph.builds[id].set_discovered_ins(deps);
+            self.graph.builds[id].deps.set_discovered_ins(deps);
             self.hashes.set(id, hash);
         }
         Ok(())
