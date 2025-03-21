@@ -277,6 +277,7 @@ impl Loader {
     }
 }
 
+#[derive(Clone)]
 pub struct LazyBuild {
     pub deps: BuildDeps,
 
