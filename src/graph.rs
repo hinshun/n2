@@ -148,6 +148,9 @@ mod tests {
 
 /// A single build action, generating File outputs from File inputs with a command.
 pub struct Build {
+    /// Source location this Build was declared.
+    pub location: FileLoc,
+
     pub deps: BuildDeps,
 
     /// User-provided description of the build step.
@@ -174,8 +177,9 @@ pub struct Build {
     pub hide_progress: bool,
 }
 impl Build {
-    pub fn new(deps: BuildDeps) -> Self {
+    pub fn new(loc: FileLoc, deps: BuildDeps) -> Self {
         Build {
+            location: loc,
             deps,
             desc: None,
             cmdline: None,
@@ -198,9 +202,6 @@ impl Deref for Build {
 
 #[derive(Clone)]
 pub struct BuildDeps {
-    /// Source location this Build was declared.
-    pub location: FileLoc,
-
     pub ins: BuildIns,
 
     /// Output files.
@@ -211,9 +212,8 @@ pub struct BuildDeps {
 }
 
 impl BuildDeps {
-    pub fn new(loc: FileLoc, ins: BuildIns, outs: BuildOuts) -> Self {
+    pub fn new(ins: BuildIns, outs: BuildOuts) -> Self {
         BuildDeps {
-            location: loc,
             ins,
             outs,
             discovered_ins: Vec::new(),

@@ -122,7 +122,8 @@ impl Loader {
                 };
             let vars = b.vars;
             LazyBuild {
-                deps: BuildDeps::new(loc, ins, outs),
+                location: loc,
+                deps: BuildDeps::new(ins, outs),
                 rule: rule.clone(),
                 vars,
             }
@@ -194,7 +195,7 @@ impl Loader {
         let hide_success = lookup("hide_success").is_some();
         let hide_progress = lookup("hide_progress").is_some();
 
-        let mut build = graph::Build::new(lazy_build.deps.clone());
+        let mut build = graph::Build::new(lazy_build.location.clone(), lazy_build.deps.clone());
         build.cmdline = cmdline;
         build.desc = desc;
         build.depfile = depfile;
@@ -279,6 +280,9 @@ impl Loader {
 
 #[derive(Clone)]
 pub struct LazyBuild {
+    /// Source location this Build was declared.
+    pub location: FileLoc,
+
     pub deps: BuildDeps,
 
     pub rule: VarList,
@@ -294,20 +298,6 @@ impl Deref for LazyBuild {
 }
 
 impl LazyBuild {
-    pub fn new(
-        loc: FileLoc,
-        ins: BuildIns,
-        outs: BuildOuts,
-        rule: VarList,
-        vars: VarList,
-    ) -> Self {
-        LazyBuild {
-            deps: BuildDeps::new(loc, ins, outs),
-            rule,
-            vars,
-        }
-    }
-
     pub fn lookup(&self, resolver: &dyn FilenameResolver, env: &eval::Vars, key: &str) -> Option<String> {
         let implicit_vars = BuildImplicitVars {
             resolver,
