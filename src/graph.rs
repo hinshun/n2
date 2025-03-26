@@ -39,7 +39,7 @@ impl From<usize> for BuildId {
 }
 
 /// A single file referenced as part of a build.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct File {
     /// Canonical path to the file.
     pub name: String,
